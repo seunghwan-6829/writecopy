@@ -7,6 +7,8 @@ interface GenerationResult {
   model: "GPT-5.2" | "Claude 4.5 Sonnet";
   content: string;
   status: "success" | "error";
+  translatedContent?: string;
+  isTranslating?: boolean;
 }
 
 interface FormData {
@@ -66,6 +68,53 @@ export default function Home() {
     }
   };
 
+  const handleTranslate = async (resultId: number) => {
+    const targetResult = results.find((r) => r.id === resultId);
+    if (!targetResult || targetResult.translatedContent) return;
+
+    // 번역 중 상태로 변경
+    setResults((prev) =>
+      prev.map((r) =>
+        r.id === resultId ? { ...r, isTranslating: true } : r
+      )
+    );
+
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: targetResult.content }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setResults((prev) =>
+          prev.map((r) =>
+            r.id === resultId
+              ? { ...r, translatedContent: data.translatedText, isTranslating: false }
+              : r
+          )
+        );
+      } else {
+        alert("번역 중 오류가 발생했습니다: " + data.error);
+        setResults((prev) =>
+          prev.map((r) =>
+            r.id === resultId ? { ...r, isTranslating: false } : r
+          )
+        );
+      }
+    } catch (err) {
+      alert("번역 서버 연결에 실패했습니다.");
+      console.error(err);
+      setResults((prev) =>
+        prev.map((r) =>
+          r.id === resultId ? { ...r, isTranslating: false } : r
+        )
+      );
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     alert("클립보드에 복사되었습니다!");
@@ -73,6 +122,130 @@ export default function Home() {
 
   const gptResults = results.filter((r) => r.model === "GPT-5.2");
   const claudeResults = results.filter((r) => r.model === "Claude 4.5 Sonnet");
+
+  // 결과 카드 컴포넌트
+  const ResultCard = ({
+    result,
+    index,
+    accentColor,
+  }: {
+    result: GenerationResult;
+    index: number;
+    accentColor: "emerald" | "amber";
+  }) => {
+    const [showTranslation, setShowTranslation] = useState(false);
+
+    return (
+      <div
+        className={`bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 ${
+          accentColor === "emerald" ? "card-gpt" : "card-claude"
+        }`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <span
+            className={`text-sm font-medium ${
+              accentColor === "emerald" ? "text-emerald-400" : "text-amber-400"
+            }`}
+          >
+            버전 {index + 1}
+          </span>
+          <div className="flex items-center gap-2">
+            {/* 영문화 버튼 */}
+            {result.status === "success" && (
+              <button
+                onClick={() => {
+                  if (result.translatedContent) {
+                    setShowTranslation(!showTranslation);
+                  } else {
+                    handleTranslate(result.id);
+                  }
+                }}
+                disabled={result.isTranslating}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                  result.translatedContent
+                    ? showTranslation
+                      ? "bg-blue-600 hover:bg-blue-500 text-white"
+                      : "bg-blue-500/20 hover:bg-blue-500/30 text-blue-400"
+                    : "bg-blue-500/20 hover:bg-blue-500/30 text-blue-400"
+                } ${result.isTranslating ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                {result.isTranslating ? (
+                  <>
+                    <svg
+                      className="animate-spin h-3 w-3"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      />
+                    </svg>
+                    번역 중...
+                  </>
+                ) : result.translatedContent ? (
+                  showTranslation ? (
+                    "🇰🇷 한글 보기"
+                  ) : (
+                    "🇺🇸 영문 보기"
+                  )
+                ) : (
+                  "🌐 영문화"
+                )}
+              </button>
+            )}
+            {/* 복사 버튼 */}
+            <button
+              onClick={() =>
+                copyToClipboard(
+                  showTranslation && result.translatedContent
+                    ? result.translatedContent
+                    : result.content
+                )
+              }
+              className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex items-center gap-1"
+            >
+              📋 복사
+            </button>
+          </div>
+        </div>
+        
+        {/* 언어 표시 배지 */}
+        {result.translatedContent && (
+          <div className="mb-3">
+            <span
+              className={`text-xs px-2 py-1 rounded ${
+                showTranslation
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "bg-zinc-700 text-zinc-400"
+              }`}
+            >
+              {showTranslation ? "🇺🇸 English Version" : "🇰🇷 한국어 버전"}
+            </span>
+          </div>
+        )}
+
+        <div
+          className={`text-sm leading-relaxed whitespace-pre-wrap ${
+            result.status === "error" ? "text-red-400" : "text-zinc-300"
+          }`}
+        >
+          {showTranslation && result.translatedContent
+            ? result.translatedContent
+            : result.content}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <main className="min-h-screen gradient-bg">
@@ -307,31 +480,12 @@ export default function Home() {
                 </h3>
                 <div className="space-y-4">
                   {gptResults.map((result, index) => (
-                    <div
+                    <ResultCard
                       key={result.id}
-                      className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 card-gpt"
-                    >
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-sm font-medium text-emerald-400">
-                          버전 {index + 1}
-                        </span>
-                        <button
-                          onClick={() => copyToClipboard(result.content)}
-                          className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex items-center gap-1"
-                        >
-                          📋 복사
-                        </button>
-                      </div>
-                      <div
-                        className={`text-sm leading-relaxed whitespace-pre-wrap ${
-                          result.status === "error"
-                            ? "text-red-400"
-                            : "text-zinc-300"
-                        }`}
-                      >
-                        {result.content}
-                      </div>
-                    </div>
+                      result={result}
+                      index={index}
+                      accentColor="emerald"
+                    />
                   ))}
                 </div>
               </div>
@@ -347,31 +501,12 @@ export default function Home() {
                 </h3>
                 <div className="space-y-4">
                   {claudeResults.map((result, index) => (
-                    <div
+                    <ResultCard
                       key={result.id}
-                      className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6 card-claude"
-                    >
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-sm font-medium text-amber-400">
-                          버전 {index + 1}
-                        </span>
-                        <button
-                          onClick={() => copyToClipboard(result.content)}
-                          className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex items-center gap-1"
-                        >
-                          📋 복사
-                        </button>
-                      </div>
-                      <div
-                        className={`text-sm leading-relaxed whitespace-pre-wrap ${
-                          result.status === "error"
-                            ? "text-red-400"
-                            : "text-zinc-300"
-                        }`}
-                      >
-                        {result.content}
-                      </div>
-                    </div>
+                      result={result}
+                      index={index}
+                      accentColor="amber"
+                    />
                   ))}
                 </div>
               </div>
