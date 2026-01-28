@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { generateWithGPT } from "@/lib/openai";
 import { generateWithClaude } from "@/lib/anthropic";
 
-export const maxDuration = 300; // Vercel Pro: 최대 300초 (5분)
+export const maxDuration = 300;
 
 interface GenerateRequest {
   name: string;
@@ -13,21 +13,11 @@ interface GenerateRequest {
   motivation: string;
 }
 
-interface GenerationResult {
-  id: number;
-  model: "GPT-5.2" | "Claude 4.5 Sonnet";
-  content: string;
-  status: "success" | "error";
-}
-
 export async function POST(request: NextRequest) {
-  try {
-    const body: GenerateRequest = await request.json();
+  const body: GenerateRequest = await request.json();
+  const { name, position, company, experience, skills, motivation } = body;
 
-    const { name, position, company, experience, skills, motivation } = body;
-
-    // 프롬프트 생성
-    const prompt = `
+  const prompt = `
 다음 정보를 바탕으로 자기소개서를 작성해주세요:
 
 [지원자 정보]
@@ -45,61 +35,66 @@ ${skills}
 ${motivation}
 
 위 정보를 바탕으로 해당 회사와 직무에 맞는 설득력 있는 자기소개서를 작성해주세요.
-각 버전마다 다른 관점이나 강조점으로 작성해주세요.
 `;
 
-    // 6개 동시 생성 (GPT 3개 + Claude 3개)
-    const promises: Promise<GenerationResult>[] = [
-      // GPT-5.2 x 3
-      ...Array.from({ length: 3 }, (_, i) =>
-        generateWithGPT(prompt + `\n\n[버전 ${i + 1}: 다른 관점으로 작성]`)
-          .then((content) => ({
-            id: i + 1,
-            model: "GPT-5.2" as const,
-            content,
-            status: "success" as const,
-          }))
-          .catch((error) => ({
-            id: i + 1,
-            model: "GPT-5.2" as const,
-            content: `오류 발생: ${error.message}`,
-            status: "error" as const,
-          }))
-      ),
-      // Claude 4.5 Sonnet x 3
-      ...Array.from({ length: 3 }, (_, i) =>
-        generateWithClaude(prompt + `\n\n[버전 ${i + 1}: 다른 관점으로 작성]`)
-          .then((content) => ({
-            id: i + 4,
-            model: "Claude 4.5 Sonnet" as const,
-            content,
-            status: "success" as const,
-          }))
-          .catch((error) => ({
-            id: i + 4,
-            model: "Claude 4.5 Sonnet" as const,
-            content: `오류 발생: ${error.message}`,
-            status: "error" as const,
-          }))
-      ),
-    ];
+  // Server-Sent Events로 스트리밍
+  const encoder = new TextEncoder();
+  
+  const stream = new ReadableStream({
+    async start(controller) {
+      const sendResult = (result: object) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(result)}\n\n`));
+      };
 
-    // 모든 요청 병렬 실행
-    const results = await Promise.all(promises);
+      // GPT 3개 + Claude 3개 = 6개 병렬 실행, 완료되는 대로 전송
+      const tasks = [
+        // GPT 3개
+        ...Array.from({ length: 3 }, (_, i) => ({
+          id: i + 1,
+          model: "GPT-5.2" as const,
+          fn: () => generateWithGPT(prompt + `\n\n[버전 ${i + 1}: 다른 관점으로 작성]`),
+        })),
+        // Claude 3개
+        ...Array.from({ length: 3 }, (_, i) => ({
+          id: i + 4,
+          model: "Claude 4.5 Sonnet" as const,
+          fn: () => generateWithClaude(prompt + `\n\n[버전 ${i + 1}: 다른 관점으로 작성]`),
+        })),
+      ];
 
-    return NextResponse.json({
-      success: true,
-      results,
-      generatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Generation error:", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "알 수 없는 오류",
-      },
-      { status: 500 }
-    );
-  }
+      // 각 태스크를 병렬로 실행하고, 완료되는 대로 결과 전송
+      await Promise.all(
+        tasks.map(async (task) => {
+          try {
+            const content = await task.fn();
+            sendResult({
+              id: task.id,
+              model: task.model,
+              content,
+              status: "success",
+            });
+          } catch (error) {
+            sendResult({
+              id: task.id,
+              model: task.model,
+              content: `오류 발생: ${error instanceof Error ? error.message : "알 수 없는 오류"}`,
+              status: "error",
+            });
+          }
+        })
+      );
+
+      // 완료 신호
+      controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }

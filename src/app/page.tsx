@@ -32,6 +32,7 @@ export default function Home() {
   const [results, setResults] = useState<GenerationResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [completedCount, setCompletedCount] = useState(0);
   
   // 테마 상태
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -44,6 +45,7 @@ export default function Home() {
     originalIndex: number;
     results: GenerationResult[];
     isLoading: boolean;
+    completedCount: number;
   }>({
     isOpen: false,
     originalContent: "",
@@ -51,6 +53,7 @@ export default function Home() {
     originalIndex: 0,
     results: [],
     isLoading: false,
+    completedCount: 0,
   });
 
   // 테마 적용
@@ -69,11 +72,13 @@ export default function Home() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // SSE 스트리밍으로 결과 받기
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
     setResults([]);
+    setCompletedCount(0);
 
     try {
       const response = await fetch("/api/generate", {
@@ -82,74 +87,80 @@ export default function Home() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error("서버 오류");
+      }
 
-      if (data.success) {
-        setResults(data.results);
-      } else {
-        setError(data.error || "생성 중 오류가 발생했습니다.");
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("스트림 읽기 실패");
+
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") {
+              setIsLoading(false);
+              continue;
+            }
+            try {
+              const result = JSON.parse(data) as GenerationResult;
+              setResults((prev) => {
+                const exists = prev.find((r) => r.id === result.id);
+                if (exists) return prev;
+                return [...prev, result].sort((a, b) => a.id - b.id);
+              });
+              setCompletedCount((prev) => prev + 1);
+            } catch {
+              // JSON 파싱 실패 무시
+            }
+          }
+        }
       }
     } catch (err) {
       setError("서버 연결에 실패했습니다.");
       console.error(err);
-    } finally {
       setIsLoading(false);
     }
   };
 
   const handleTranslate = async (
     resultId: number,
-    setResultsFn: React.Dispatch<React.SetStateAction<GenerationResult[]>>
+    getContent: () => string,
+    updateFn: (id: number, data: Partial<GenerationResult>) => void
   ) => {
-    setResultsFn((prev) => {
-      const targetResult = prev.find((r) => r.id === resultId);
-      if (!targetResult || targetResult.translatedContent) return prev;
-      return prev.map((r) =>
-        r.id === resultId ? { ...r, isTranslating: true } : r
-      );
-    });
+    updateFn(resultId, { isTranslating: true });
 
     try {
-      const targetResult = results.find((r) => r.id === resultId) || 
-                          variationModal.results.find((r) => r.id === resultId);
-      if (!targetResult) return;
-
       const response = await fetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: targetResult.content }),
+        body: JSON.stringify({ text: getContent() }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        setResultsFn((prev) =>
-          prev.map((r) =>
-            r.id === resultId
-              ? { ...r, translatedContent: data.translatedText, isTranslating: false }
-              : r
-          )
-        );
+        updateFn(resultId, { translatedContent: data.translatedText, isTranslating: false });
       } else {
         alert("번역 중 오류가 발생했습니다: " + data.error);
-        setResultsFn((prev) =>
-          prev.map((r) =>
-            r.id === resultId ? { ...r, isTranslating: false } : r
-          )
-        );
+        updateFn(resultId, { isTranslating: false });
       }
     } catch (err) {
       alert("번역 서버 연결에 실패했습니다.");
       console.error(err);
-      setResultsFn((prev) =>
-        prev.map((r) =>
-          r.id === resultId ? { ...r, isTranslating: false } : r
-        )
-      );
+      updateFn(resultId, { isTranslating: false });
     }
   };
 
-  // 베리에이션 생성
+  // 베리에이션 생성 (SSE 스트리밍)
   const handleVariation = async (content: string, model: string, index: number) => {
     setVariationModal({
       isOpen: true,
@@ -158,6 +169,7 @@ export default function Home() {
       originalIndex: index,
       results: [],
       isLoading: true,
+      completedCount: 0,
     });
 
     try {
@@ -167,17 +179,45 @@ export default function Home() {
         body: JSON.stringify({ originalContent: content, model }),
       });
 
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error("서버 오류");
+      }
 
-      if (data.success) {
-        setVariationModal((prev) => ({
-          ...prev,
-          results: data.results,
-          isLoading: false,
-        }));
-      } else {
-        alert("베리에이션 생성 중 오류: " + data.error);
-        setVariationModal((prev) => ({ ...prev, isLoading: false }));
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("스트림 읽기 실패");
+
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") {
+              setVariationModal((prev) => ({ ...prev, isLoading: false }));
+              continue;
+            }
+            try {
+              const result = JSON.parse(data) as GenerationResult;
+              setVariationModal((prev) => {
+                const exists = prev.results.find((r) => r.id === result.id);
+                if (exists) return prev;
+                return {
+                  ...prev,
+                  results: [...prev.results, result].sort((a, b) => a.id - b.id),
+                  completedCount: prev.completedCount + 1,
+                };
+              });
+            } catch {
+              // JSON 파싱 실패 무시
+            }
+          }
+        }
       }
     } catch (err) {
       alert("서버 연결에 실패했습니다.");
@@ -191,6 +231,19 @@ export default function Home() {
     alert("클립보드에 복사되었습니다!");
   };
 
+  const updateResult = (id: number, data: Partial<GenerationResult>) => {
+    setResults((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...data } : r))
+    );
+  };
+
+  const updateVariationResult = (id: number, data: Partial<GenerationResult>) => {
+    setVariationModal((prev) => ({
+      ...prev,
+      results: prev.results.map((r) => (r.id === id ? { ...r, ...data } : r)),
+    }));
+  };
+
   const gptResults = results.filter((r) => r.model === "GPT-5.2");
   const claudeResults = results.filter((r) => r.model === "Claude 4.5 Sonnet");
 
@@ -201,19 +254,16 @@ export default function Home() {
     accentColor,
     isVariation = false,
     onTranslate,
-    resultsState,
-    setResultsState,
+    onVariation,
   }: {
     result: GenerationResult;
     index: number;
     accentColor: "emerald" | "amber";
     isVariation?: boolean;
-    onTranslate: (id: number) => void;
-    resultsState: GenerationResult[];
-    setResultsState: React.Dispatch<React.SetStateAction<GenerationResult[]>>;
+    onTranslate: () => void;
+    onVariation?: () => void;
   }) => {
     const [showTranslation, setShowTranslation] = useState(false);
-    const currentResult = resultsState.find((r) => r.id === result.id) || result;
 
     return (
       <div
@@ -231,9 +281,9 @@ export default function Home() {
           </span>
           <div className="flex items-center gap-2 flex-wrap">
             {/* 베리에이션 버튼 (원본에만 표시) */}
-            {!isVariation && result.status === "success" && (
+            {!isVariation && result.status === "success" && onVariation && (
               <button
-                onClick={() => handleVariation(result.content, result.model, index)}
+                onClick={onVariation}
                 className="text-xs px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-colors flex items-center gap-1"
               >
                 🔄 베리에이션
@@ -243,22 +293,22 @@ export default function Home() {
             {result.status === "success" && (
               <button
                 onClick={() => {
-                  if (currentResult.translatedContent) {
+                  if (result.translatedContent) {
                     setShowTranslation(!showTranslation);
                   } else {
-                    onTranslate(result.id);
+                    onTranslate();
                   }
                 }}
-                disabled={currentResult.isTranslating}
+                disabled={result.isTranslating}
                 className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ${
-                  currentResult.translatedContent
+                  result.translatedContent
                     ? showTranslation
                       ? "bg-blue-600 hover:bg-blue-500 text-white"
                       : "bg-blue-500/20 hover:bg-blue-500/30 text-blue-400"
                     : "bg-blue-500/20 hover:bg-blue-500/30 text-blue-400"
-                } ${currentResult.isTranslating ? "opacity-50 cursor-not-allowed" : ""}`}
+                } ${result.isTranslating ? "opacity-50 cursor-not-allowed" : ""}`}
               >
-                {currentResult.isTranslating ? (
+                {result.isTranslating ? (
                   <>
                     <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -266,7 +316,7 @@ export default function Home() {
                     </svg>
                     번역 중...
                   </>
-                ) : currentResult.translatedContent ? (
+                ) : result.translatedContent ? (
                   showTranslation ? "🇰🇷 한글" : "🇺🇸 영문"
                 ) : (
                   "🌐 영문화"
@@ -277,9 +327,9 @@ export default function Home() {
             <button
               onClick={() =>
                 copyToClipboard(
-                  showTranslation && currentResult.translatedContent
-                    ? currentResult.translatedContent
-                    : currentResult.content
+                  showTranslation && result.translatedContent
+                    ? result.translatedContent
+                    : result.content
                 )
               }
               className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 ${
@@ -294,7 +344,7 @@ export default function Home() {
         </div>
 
         {/* 언어 표시 배지 */}
-        {currentResult.translatedContent && (
+        {result.translatedContent && (
           <div className="mb-3">
             <span
               className={`text-xs px-2 py-1 rounded ${
@@ -319,13 +369,23 @@ export default function Home() {
                 : "text-gray-700"
           }`}
         >
-          {showTranslation && currentResult.translatedContent
-            ? currentResult.translatedContent
-            : currentResult.content}
+          {showTranslation && result.translatedContent
+            ? result.translatedContent
+            : result.content}
         </div>
       </div>
     );
   };
+
+  // 로딩 카드 컴포넌트
+  const LoadingCard = ({ accentColor }: { accentColor: "emerald" | "amber" }) => (
+    <div className={`section-card rounded-xl p-6 ${accentColor === "emerald" ? "card-gpt" : "card-claude"}`}>
+      <div className={`h-4 rounded w-3/4 mb-3 ${accentColor === "emerald" ? "loading-gpt" : "loading-claude"}`}></div>
+      <div className={`h-4 rounded w-full mb-3 ${accentColor === "emerald" ? "loading-gpt" : "loading-claude"}`}></div>
+      <div className={`h-4 rounded w-5/6 mb-3 ${accentColor === "emerald" ? "loading-gpt" : "loading-claude"}`}></div>
+      <div className={`h-4 rounded w-4/5 ${accentColor === "emerald" ? "loading-gpt" : "loading-claude"}`}></div>
+    </div>
+  );
 
   return (
     <main className="min-h-screen gradient-bg">
@@ -468,7 +528,7 @@ export default function Home() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    AI가 자기소개서를 작성 중입니다...
+                    생성 중... ({completedCount}/6)
                   </>
                 ) : (
                   <>
@@ -488,62 +548,25 @@ export default function Home() {
           </div>
         )}
 
-        {/* 로딩 상태 */}
-        {isLoading && (
-          <section className="mb-12">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div>
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
-                  GPT-5.2 생성 중...
-                </h3>
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="section-card rounded-xl p-6 card-gpt">
-                      <div className="h-4 loading-gpt rounded w-3/4 mb-3"></div>
-                      <div className="h-4 loading-gpt rounded w-full mb-3"></div>
-                      <div className="h-4 loading-gpt rounded w-5/6"></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-amber-500"></span>
-                  Claude 4.5 Sonnet 생성 중...
-                </h3>
-                <div className="space-y-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="section-card rounded-xl p-6 card-claude">
-                      <div className="h-4 loading-claude rounded w-3/4 mb-3"></div>
-                      <div className="h-4 loading-claude rounded w-full mb-3"></div>
-                      <div className="h-4 loading-claude rounded w-5/6"></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
         {/* 결과 표시 */}
-        {results.length > 0 && (
+        {(results.length > 0 || isLoading) && (
           <section>
             <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
               <span className="text-emerald-500">02</span>
               생성된 자기소개서
               <span className={`text-sm font-normal ml-2 ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                (총 {results.length}개)
+                ({completedCount}/6개 완료)
               </span>
             </h2>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* GPT 결과 */}
               <div>
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
                   GPT-5.2
                   <span className={`text-xs font-normal ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                    ({gptResults.length}개)
+                    ({gptResults.length}/3개)
                   </span>
                 </h3>
                 <div className="space-y-4">
@@ -553,20 +576,26 @@ export default function Home() {
                       result={result}
                       index={index}
                       accentColor="emerald"
-                      onTranslate={(id) => handleTranslate(id, setResults)}
-                      resultsState={results}
-                      setResultsState={setResults}
+                      onTranslate={() => handleTranslate(result.id, () => result.content, updateResult)}
+                      onVariation={() => handleVariation(result.content, result.model, index)}
                     />
                   ))}
+                  {/* 로딩 중인 카드 표시 */}
+                  {isLoading && gptResults.length < 3 && 
+                    Array.from({ length: 3 - gptResults.length }).map((_, i) => (
+                      <LoadingCard key={`loading-gpt-${i}`} accentColor="emerald" />
+                    ))
+                  }
                 </div>
               </div>
 
+              {/* Claude 결과 */}
               <div>
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-amber-500"></span>
                   Claude 4.5 Sonnet
                   <span className={`text-xs font-normal ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                    ({claudeResults.length}개)
+                    ({claudeResults.length}/3개)
                   </span>
                 </h3>
                 <div className="space-y-4">
@@ -576,11 +605,16 @@ export default function Home() {
                       result={result}
                       index={index}
                       accentColor="amber"
-                      onTranslate={(id) => handleTranslate(id, setResults)}
-                      resultsState={results}
-                      setResultsState={setResults}
+                      onTranslate={() => handleTranslate(result.id, () => result.content, updateResult)}
+                      onVariation={() => handleVariation(result.content, result.model, index)}
                     />
                   ))}
+                  {/* 로딩 중인 카드 표시 */}
+                  {isLoading && claudeResults.length < 3 && 
+                    Array.from({ length: 3 - claudeResults.length }).map((_, i) => (
+                      <LoadingCard key={`loading-claude-${i}`} accentColor="amber" />
+                    ))
+                  }
                 </div>
               </div>
             </div>
@@ -588,138 +622,68 @@ export default function Home() {
         )}
       </div>
 
-      {/* 베리에이션 모달 */}
+      {/* 베리에이션 모달 - 전체 화면 */}
       {variationModal.isOpen && (
-        <div className="modal-overlay" onClick={() => setVariationModal((prev) => ({ ...prev, isOpen: false }))}>
-          <div className="modal-content p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                🔄 베리에이션
-                <span className={`text-sm font-normal ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                  원본: {variationModal.originalModel} 버전 {variationModal.originalIndex + 1}
-                </span>
-              </h3>
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: isDarkMode ? "rgba(0,0,0,0.9)" : "rgba(0,0,0,0.7)" }}
+        >
+          <div 
+            className={`w-full h-full max-w-[95vw] max-h-[95vh] rounded-2xl overflow-hidden flex flex-col ${
+              isDarkMode ? "bg-zinc-900 border-zinc-700" : "bg-white border-gray-300"
+            } border`}
+          >
+            {/* 모달 헤더 */}
+            <div className={`flex items-center justify-between p-6 border-b ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
+              <div>
+                <h3 className="text-2xl font-bold flex items-center gap-3">
+                  🔄 베리에이션
+                  <span className={`text-base font-normal px-3 py-1 rounded-full ${
+                    variationModal.originalModel === "GPT-5.2" 
+                      ? "bg-emerald-500/20 text-emerald-400" 
+                      : "bg-amber-500/20 text-amber-400"
+                  }`}>
+                    {variationModal.originalModel}
+                  </span>
+                </h3>
+                <p className={`text-sm mt-1 ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
+                  원본 버전 {variationModal.originalIndex + 1}의 베리에이션 ({variationModal.completedCount}/6개 완료)
+                </p>
+              </div>
               <button
                 onClick={() => setVariationModal((prev) => ({ ...prev, isOpen: false }))}
-                className={`p-2 rounded-lg transition-colors ${
-                  isDarkMode ? "hover:bg-zinc-800" : "hover:bg-gray-200"
+                className={`p-3 rounded-xl transition-colors text-xl ${
+                  isDarkMode ? "hover:bg-zinc-800 text-zinc-400" : "hover:bg-gray-200 text-gray-500"
                 }`}
               >
                 ✕
               </button>
             </div>
 
-            {variationModal.isLoading ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="text-md font-semibold mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    GPT-5.2 베리에이션 생성 중...
-                  </h4>
-                  <div className="space-y-4">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="section-card rounded-xl p-4 card-gpt">
-                        <div className="h-3 loading-gpt rounded w-3/4 mb-2"></div>
-                        <div className="h-3 loading-gpt rounded w-full mb-2"></div>
-                        <div className="h-3 loading-gpt rounded w-5/6"></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h4 className="text-md font-semibold mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    Claude 4.5 베리에이션 생성 중...
-                  </h4>
-                  <div className="space-y-4">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="section-card rounded-xl p-4 card-claude">
-                        <div className="h-3 loading-claude rounded w-3/4 mb-2"></div>
-                        <div className="h-3 loading-claude rounded w-full mb-2"></div>
-                        <div className="h-3 loading-claude rounded w-5/6"></div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {/* 모달 컨텐츠 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {variationModal.results.map((result, index) => (
+                  <ResultCard
+                    key={result.id}
+                    result={result}
+                    index={index}
+                    accentColor={variationModal.originalModel === "GPT-5.2" ? "emerald" : "amber"}
+                    isVariation={true}
+                    onTranslate={() => handleTranslate(result.id, () => result.content, updateVariationResult)}
+                  />
+                ))}
+                {/* 로딩 중인 카드 */}
+                {variationModal.isLoading && variationModal.results.length < 6 &&
+                  Array.from({ length: 6 - variationModal.results.length }).map((_, i) => (
+                    <LoadingCard 
+                      key={`loading-var-${i}`} 
+                      accentColor={variationModal.originalModel === "GPT-5.2" ? "emerald" : "amber"} 
+                    />
+                  ))
+                }
               </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="text-md font-semibold mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    GPT-5.2 베리에이션
-                    <span className={`text-xs font-normal ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                      ({variationModal.results.filter((r) => r.model === "GPT-5.2").length}개)
-                    </span>
-                  </h4>
-                  <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                    {variationModal.results
-                      .filter((r) => r.model === "GPT-5.2")
-                      .map((result, index) => (
-                        <ResultCard
-                          key={result.id}
-                          result={result}
-                          index={index}
-                          accentColor="emerald"
-                          isVariation={true}
-                          onTranslate={(id) =>
-                            handleTranslate(id, (fn) =>
-                              setVariationModal((prev) => ({
-                                ...prev,
-                                results: typeof fn === "function" ? fn(prev.results) : fn,
-                              }))
-                            )
-                          }
-                          resultsState={variationModal.results}
-                          setResultsState={(fn) =>
-                            setVariationModal((prev) => ({
-                              ...prev,
-                              results: typeof fn === "function" ? fn(prev.results) : fn,
-                            }))
-                          }
-                        />
-                      ))}
-                  </div>
-                </div>
-                <div>
-                  <h4 className="text-md font-semibold mb-3 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    Claude 4.5 베리에이션
-                    <span className={`text-xs font-normal ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
-                      ({variationModal.results.filter((r) => r.model === "Claude 4.5 Sonnet").length}개)
-                    </span>
-                  </h4>
-                  <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                    {variationModal.results
-                      .filter((r) => r.model === "Claude 4.5 Sonnet")
-                      .map((result, index) => (
-                        <ResultCard
-                          key={result.id}
-                          result={result}
-                          index={index}
-                          accentColor="amber"
-                          isVariation={true}
-                          onTranslate={(id) =>
-                            handleTranslate(id, (fn) =>
-                              setVariationModal((prev) => ({
-                                ...prev,
-                                results: typeof fn === "function" ? fn(prev.results) : fn,
-                              }))
-                            )
-                          }
-                          resultsState={variationModal.results}
-                          setResultsState={(fn) =>
-                            setVariationModal((prev) => ({
-                              ...prev,
-                              results: typeof fn === "function" ? fn(prev.results) : fn,
-                            }))
-                          }
-                        />
-                      ))}
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
