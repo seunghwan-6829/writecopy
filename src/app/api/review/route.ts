@@ -20,39 +20,44 @@ const REVIEW_PROMPT = `당신은 대기업 인사담당자 출신의 자기소�
 {
   "overall_score": 85,
   "overall_comment": "전체적인 평가 코멘트 (2-3문장)",
+  "revised_content": "모든 수정 제안이 반영된 완성된 자기소개서 전문 (원본과 동일한 길이 유지, 수정이 필요한 부분만 개선하여 작성)",
   "strengths": [
     {
-      "text": "잘 쓴 부분 원문 인용",
+      "text": "잘 쓴 부분 원문 인용 (정확하게 인용)",
       "comment": "왜 좋은지 설명"
     }
   ],
   "improvements": [
     {
-      "original": "수정이 필요한 부분 원문 인용",
-      "suggestion": "이렇게 수정하면 좋겠습니다",
+      "original": "수정이 필요한 부분 원문 인용 (정확하게 인용)",
+      "suggestion": "수정된 문장 전체",
       "reason": "수정 이유"
     }
   ],
   "additions": [
     {
-      "where": "어느 부분 뒤에 추가하면 좋을지",
+      "where": "어느 문장 뒤에 추가하면 좋을지 (정확하게 인용)",
       "content": "추가하면 좋을 내용",
       "reason": "추가 이유"
     }
   ],
   "appeal_points": [
     {
-      "text": "더 강조하면 좋을 부분",
+      "text": "더 강조하면 좋을 부분 (정확하게 인용)",
       "how": "이렇게 어필하면 더 효과적"
     }
   ],
   "warnings": [
     {
-      "text": "주의해야 할 표현이나 내용",
+      "text": "주의해야 할 표현 (정확하게 인용)",
       "reason": "왜 주의해야 하는지"
     }
   ]
 }
+
+중요: 
+- revised_content는 모든 improvements의 수정 제안을 반영한 완성본입니다.
+- 각 항목의 text/original/where는 원문에서 정확히 일치하는 문장을 인용해야 합니다.
 
 ## 분석 기준
 

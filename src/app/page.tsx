@@ -23,6 +23,7 @@ interface FormData {
 interface ReviewResult {
   overall_score: number;
   overall_comment: string;
+  revised_content: string;
   strengths: { text: string; comment: string }[];
   improvements: { original: string; suggestion: string; reason: string }[];
   additions: { where: string; content: string; reason: string }[];
@@ -83,8 +84,8 @@ export default function Home() {
 
   // 교차 검증 모달
   const [reviewModal, setReviewModal] = useState<{
-    isOpen: boolean; content: string; isLoading: boolean; review: ReviewResult | null;
-  }>({ isOpen: false, content: "", isLoading: false, review: null });
+    isOpen: boolean; originalContent: string; isLoading: boolean; review: ReviewResult | null; activeTab: "compare" | "details";
+  }>({ isOpen: false, originalContent: "", isLoading: false, review: null, activeTab: "compare" });
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", !isDarkMode);
@@ -169,7 +170,7 @@ export default function Home() {
 
   // 교차 검증
   const handleReview = async (content: string) => {
-    setReviewModal({ isOpen: true, content, isLoading: true, review: null });
+    setReviewModal({ isOpen: true, originalContent: content, isLoading: true, review: null, activeTab: "compare" });
     try {
       const res = await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
       const data = await res.json();
@@ -180,6 +181,31 @@ export default function Home() {
         setReviewModal(prev => ({ ...prev, isLoading: false }));
       }
     } catch { alert("서버 연결 실패"); setReviewModal(prev => ({ ...prev, isLoading: false })); }
+  };
+
+  // 원본 텍스트에 하이라이트 적용
+  const highlightOriginalText = (text: string, review: ReviewResult) => {
+    let highlightedText = text;
+    const highlights: { text: string; type: "improvement" | "warning" | "appeal" | "strength" }[] = [];
+    
+    review.improvements?.forEach(item => highlights.push({ text: item.original, type: "improvement" }));
+    review.warnings?.forEach(item => highlights.push({ text: item.text, type: "warning" }));
+    review.appeal_points?.forEach(item => highlights.push({ text: item.text, type: "appeal" }));
+    review.strengths?.forEach(item => highlights.push({ text: item.text, type: "strength" }));
+    
+    // 긴 텍스트부터 처리하여 중첩 방지
+    highlights.sort((a, b) => b.text.length - a.text.length);
+    
+    highlights.forEach(h => {
+      const colorClass = h.type === "improvement" ? "bg-red-500/30 text-red-300" 
+        : h.type === "warning" ? "bg-amber-500/30 text-amber-300" 
+        : h.type === "appeal" ? "bg-purple-500/30 text-purple-300" 
+        : "bg-emerald-500/30 text-emerald-300";
+      const escapedText = h.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      highlightedText = highlightedText.replace(new RegExp(escapedText, "g"), `<mark class="${colorClass} px-1 rounded">${h.text}</mark>`);
+    });
+    
+    return highlightedText;
   };
 
   const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); alert("복사되었습니다!"); };
@@ -434,109 +460,176 @@ export default function Home() {
       {/* 교차 검증 모달 */}
       {reviewModal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }}>
-          <div className={`w-full max-w-4xl max-h-[90vh] rounded-2xl overflow-hidden flex flex-col ${isDarkMode ? "bg-zinc-900 border-zinc-700" : "bg-white border-gray-300"} border`}>
-            <div className={`flex items-center justify-between p-6 border-b ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
-              <h3 className="text-2xl font-bold">🔍 교차 검증 리포트</h3>
-              <button onClick={() => setReviewModal(prev => ({ ...prev, isOpen: false }))} className={`p-3 rounded-xl text-xl ${isDarkMode ? "hover:bg-zinc-800" : "hover:bg-gray-200"}`}>✕</button>
+          <div className={`w-full h-full max-w-[95vw] max-h-[95vh] rounded-2xl overflow-hidden flex flex-col ${isDarkMode ? "bg-zinc-900 border-zinc-700" : "bg-white border-gray-300"} border`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
+              <div className="flex items-center gap-4">
+                <h3 className="text-xl font-bold">🔍 교차 검증 리포트</h3>
+                {reviewModal.review && (
+                  <div className="flex gap-1 p-1 bg-zinc-800 rounded-lg">
+                    <button onClick={() => setReviewModal(prev => ({ ...prev, activeTab: "compare" }))} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${reviewModal.activeTab === "compare" ? "bg-emerald-500 text-white" : "text-zinc-400 hover:text-white"}`}>📋 원본 vs 수정본</button>
+                    <button onClick={() => setReviewModal(prev => ({ ...prev, activeTab: "details" }))} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${reviewModal.activeTab === "details" ? "bg-emerald-500 text-white" : "text-zinc-400 hover:text-white"}`}>📊 상세 분석</button>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {reviewModal.review && (
+                  <div className="flex items-center gap-2">
+                    <span className={`text-2xl font-bold ${reviewModal.review.overall_score >= 80 ? "text-emerald-500" : reviewModal.review.overall_score >= 60 ? "text-amber-500" : "text-red-500"}`}>{reviewModal.review.overall_score}점</span>
+                    <div className="w-24 h-2 rounded-full bg-zinc-700 overflow-hidden">
+                      <div className={`h-full rounded-full ${reviewModal.review.overall_score >= 80 ? "bg-emerald-500" : reviewModal.review.overall_score >= 60 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${reviewModal.review.overall_score}%` }} />
+                    </div>
+                  </div>
+                )}
+                <button onClick={() => setReviewModal(prev => ({ ...prev, isOpen: false }))} className={`p-2 rounded-lg text-lg ${isDarkMode ? "hover:bg-zinc-800" : "hover:bg-gray-200"}`}>✕</button>
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-6">
+            
+            <div className="flex-1 overflow-y-auto">
               {reviewModal.isLoading ? (
-                <div className="text-center py-12">
-                  <div className="text-4xl mb-4 animate-pulse">🔍</div>
-                  <p className={isDarkMode ? "text-zinc-400" : "text-gray-500"}>AI가 자기소개서를 분석 중입니다...</p>
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-5xl mb-4 animate-pulse">🔍</div>
+                    <p className={`text-lg ${isDarkMode ? "text-zinc-400" : "text-gray-500"}`}>AI가 자기소개서를 분석 중입니다...</p>
+                    <p className={`text-sm mt-2 ${isDarkMode ? "text-zinc-600" : "text-gray-400"}`}>잠시만 기다려주세요</p>
+                  </div>
                 </div>
               ) : reviewModal.review && (
-                <div className="space-y-6">
-                  {/* 종합 점수 */}
-                  <div className={`p-6 rounded-xl ${isDarkMode ? "bg-zinc-800" : "bg-gray-100"}`}>
-                    <div className="flex items-center gap-4 mb-3">
-                      <div className={`text-4xl font-bold ${reviewModal.review.overall_score >= 80 ? "text-emerald-500" : reviewModal.review.overall_score >= 60 ? "text-amber-500" : "text-red-500"}`}>
-                        {reviewModal.review.overall_score}점
+                <>
+                  {/* 원본 vs 수정본 비교 탭 */}
+                  {reviewModal.activeTab === "compare" && (
+                    <div className="h-full flex flex-col">
+                      {/* 범례 */}
+                      <div className={`px-6 py-3 border-b ${isDarkMode ? "border-zinc-800 bg-zinc-800/50" : "border-gray-200 bg-gray-50"}`}>
+                        <div className="flex items-center gap-6 text-xs">
+                          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-red-500/40"></span><span className={isDarkMode ? "text-zinc-400" : "text-gray-600"}>수정 필요</span></span>
+                          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-amber-500/40"></span><span className={isDarkMode ? "text-zinc-400" : "text-gray-600"}>주의사항</span></span>
+                          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-purple-500/40"></span><span className={isDarkMode ? "text-zinc-400" : "text-gray-600"}>어필 포인트</span></span>
+                          <span className="flex items-center gap-2"><span className="w-3 h-3 rounded bg-emerald-500/40"></span><span className={isDarkMode ? "text-zinc-400" : "text-gray-600"}>잘 쓴 부분</span></span>
+                        </div>
                       </div>
-                      <div className="flex-1 h-3 rounded-full bg-zinc-700 overflow-hidden">
-                        <div className={`h-full rounded-full ${reviewModal.review.overall_score >= 80 ? "bg-emerald-500" : reviewModal.review.overall_score >= 60 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${reviewModal.review.overall_score}%` }} />
-                      </div>
-                    </div>
-                    <p className={isDarkMode ? "text-zinc-300" : "text-gray-700"}>{reviewModal.review.overall_comment}</p>
-                  </div>
-
-                  {/* 잘 쓴 부분 (초록) */}
-                  {reviewModal.review.strengths?.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500"></span>✅ 잘 쓴 부분</h4>
-                      <div className="space-y-3">
-                        {reviewModal.review.strengths.map((s, i) => (
-                          <div key={i} className={`p-4 rounded-xl border-l-4 border-emerald-500 ${isDarkMode ? "bg-emerald-500/10" : "bg-emerald-50"}`}>
-                            <p className={`font-medium mb-1 ${isDarkMode ? "text-emerald-400" : "text-emerald-700"}`}>"{s.text}"</p>
-                            <p className={`text-sm ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{s.comment}</p>
+                      {/* 비교 영역 */}
+                      <div className="flex-1 grid grid-cols-2 gap-0">
+                        {/* 왼쪽: 원본 */}
+                        <div className={`flex flex-col border-r ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
+                          <div className={`px-6 py-3 border-b ${isDarkMode ? "border-zinc-700 bg-red-500/10" : "border-gray-200 bg-red-50"}`}>
+                            <h4 className="font-semibold text-red-400 flex items-center gap-2">📄 원본 (수정 전)</h4>
                           </div>
-                        ))}
+                          <div className="flex-1 overflow-y-auto p-6">
+                            <div className={`text-sm leading-relaxed whitespace-pre-wrap ${isDarkMode ? "text-zinc-300" : "text-gray-700"}`}
+                              dangerouslySetInnerHTML={{ __html: highlightOriginalText(reviewModal.originalContent, reviewModal.review) }} />
+                          </div>
+                          <div className={`px-6 py-3 border-t ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
+                            <button onClick={() => copyToClipboard(reviewModal.originalContent)} className={`px-4 py-2 rounded-lg text-sm ${isDarkMode ? "bg-zinc-800 hover:bg-zinc-700" : "bg-gray-200 hover:bg-gray-300"}`}>📋 원본 복사</button>
+                          </div>
+                        </div>
+                        {/* 오른쪽: 수정본 */}
+                        <div className="flex flex-col">
+                          <div className={`px-6 py-3 border-b ${isDarkMode ? "border-zinc-700 bg-emerald-500/10" : "border-gray-200 bg-emerald-50"}`}>
+                            <h4 className="font-semibold text-emerald-400 flex items-center gap-2">✨ 수정본 (개선 후)</h4>
+                          </div>
+                          <div className="flex-1 overflow-y-auto p-6">
+                            <div className={`text-sm leading-relaxed whitespace-pre-wrap ${isDarkMode ? "text-zinc-300" : "text-gray-700"}`}>
+                              {reviewModal.review.revised_content || "수정본 생성 중..."}
+                            </div>
+                          </div>
+                          <div className={`px-6 py-3 border-t ${isDarkMode ? "border-zinc-700" : "border-gray-200"}`}>
+                            <button onClick={() => copyToClipboard(reviewModal.review?.revised_content || "")} className="px-4 py-2 rounded-lg text-sm bg-emerald-500 hover:bg-emerald-600 text-white">📋 수정본 복사</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  {/* 수정 필요 (빨강) */}
-                  {reviewModal.review.improvements?.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span>🔴 수정이 필요한 부분</h4>
-                      <div className="space-y-3">
-                        {reviewModal.review.improvements.map((item, i) => (
-                          <div key={i} className={`p-4 rounded-xl border-l-4 border-red-500 ${isDarkMode ? "bg-red-500/10" : "bg-red-50"}`}>
-                            <p className={`font-medium mb-2 line-through ${isDarkMode ? "text-red-400" : "text-red-600"}`}>"{item.original}"</p>
-                            <p className={`font-medium mb-1 ${isDarkMode ? "text-emerald-400" : "text-emerald-700"}`}>→ {item.suggestion}</p>
-                            <p className={`text-sm ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
-                          </div>
-                        ))}
+                  {/* 상세 분석 탭 */}
+                  {reviewModal.activeTab === "details" && (
+                    <div className="p-6 space-y-6">
+                      {/* 종합 평가 */}
+                      <div className={`p-6 rounded-xl ${isDarkMode ? "bg-zinc-800" : "bg-gray-100"}`}>
+                        <h4 className="text-lg font-semibold mb-3">📊 종합 평가</h4>
+                        <p className={isDarkMode ? "text-zinc-300" : "text-gray-700"}>{reviewModal.review.overall_comment}</p>
                       </div>
-                    </div>
-                  )}
 
-                  {/* 추가 권장 (파랑) */}
-                  {reviewModal.review.additions?.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-500"></span>🔵 추가하면 좋을 내용</h4>
-                      <div className="space-y-3">
-                        {reviewModal.review.additions.map((item, i) => (
-                          <div key={i} className={`p-4 rounded-xl border-l-4 border-blue-500 ${isDarkMode ? "bg-blue-500/10" : "bg-blue-50"}`}>
-                            <p className={`text-sm mb-1 ${isDarkMode ? "text-blue-400" : "text-blue-600"}`}>📍 {item.where}</p>
-                            <p className={`font-medium mb-1 ${isDarkMode ? "text-zinc-200" : "text-gray-800"}`}>+ {item.content}</p>
-                            <p className={`text-sm ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* 잘 쓴 부분 */}
+                        {reviewModal.review.strengths?.length > 0 && (
+                          <div>
+                            <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500"></span>✅ 잘 쓴 부분</h4>
+                            <div className="space-y-3">
+                              {reviewModal.review.strengths.map((s, i) => (
+                                <div key={i} className={`p-4 rounded-xl border-l-4 border-emerald-500 ${isDarkMode ? "bg-emerald-500/10" : "bg-emerald-50"}`}>
+                                  <p className={`font-medium mb-1 text-sm ${isDarkMode ? "text-emerald-400" : "text-emerald-700"}`}>"{s.text}"</p>
+                                  <p className={`text-xs ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{s.comment}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        )}
 
-                  {/* 어필 포인트 (보라) */}
-                  {reviewModal.review.appeal_points?.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-purple-500"></span>💜 더 어필하면 좋을 부분</h4>
-                      <div className="space-y-3">
-                        {reviewModal.review.appeal_points.map((item, i) => (
-                          <div key={i} className={`p-4 rounded-xl border-l-4 border-purple-500 ${isDarkMode ? "bg-purple-500/10" : "bg-purple-50"}`}>
-                            <p className={`font-medium mb-1 ${isDarkMode ? "text-purple-400" : "text-purple-700"}`}>"{item.text}"</p>
-                            <p className={`text-sm ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>💡 {item.how}</p>
+                        {/* 수정 필요 */}
+                        {reviewModal.review.improvements?.length > 0 && (
+                          <div>
+                            <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span>🔴 수정이 필요한 부분</h4>
+                            <div className="space-y-3">
+                              {reviewModal.review.improvements.map((item, i) => (
+                                <div key={i} className={`p-4 rounded-xl border-l-4 border-red-500 ${isDarkMode ? "bg-red-500/10" : "bg-red-50"}`}>
+                                  <p className={`text-sm mb-2 line-through ${isDarkMode ? "text-red-400" : "text-red-600"}`}>"{item.original}"</p>
+                                  <p className={`text-sm font-medium mb-1 ${isDarkMode ? "text-emerald-400" : "text-emerald-700"}`}>→ {item.suggestion}</p>
+                                  <p className={`text-xs ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        )}
 
-                  {/* 주의사항 (노랑) */}
-                  {reviewModal.review.warnings?.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-amber-500"></span>⚠️ 주의사항</h4>
-                      <div className="space-y-3">
-                        {reviewModal.review.warnings.map((item, i) => (
-                          <div key={i} className={`p-4 rounded-xl border-l-4 border-amber-500 ${isDarkMode ? "bg-amber-500/10" : "bg-amber-50"}`}>
-                            <p className={`font-medium mb-1 ${isDarkMode ? "text-amber-400" : "text-amber-700"}`}>"{item.text}"</p>
-                            <p className={`text-sm ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
+                        {/* 추가 권장 */}
+                        {reviewModal.review.additions?.length > 0 && (
+                          <div>
+                            <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-500"></span>🔵 추가하면 좋을 내용</h4>
+                            <div className="space-y-3">
+                              {reviewModal.review.additions.map((item, i) => (
+                                <div key={i} className={`p-4 rounded-xl border-l-4 border-blue-500 ${isDarkMode ? "bg-blue-500/10" : "bg-blue-50"}`}>
+                                  <p className={`text-xs mb-1 ${isDarkMode ? "text-blue-400" : "text-blue-600"}`}>📍 {item.where}</p>
+                                  <p className={`text-sm font-medium mb-1 ${isDarkMode ? "text-zinc-200" : "text-gray-800"}`}>+ {item.content}</p>
+                                  <p className={`text-xs ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
+                        )}
+
+                        {/* 어필 포인트 */}
+                        {reviewModal.review.appeal_points?.length > 0 && (
+                          <div>
+                            <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-purple-500"></span>💜 더 어필하면 좋을 부분</h4>
+                            <div className="space-y-3">
+                              {reviewModal.review.appeal_points.map((item, i) => (
+                                <div key={i} className={`p-4 rounded-xl border-l-4 border-purple-500 ${isDarkMode ? "bg-purple-500/10" : "bg-purple-50"}`}>
+                                  <p className={`text-sm font-medium mb-1 ${isDarkMode ? "text-purple-400" : "text-purple-700"}`}>"{item.text}"</p>
+                                  <p className={`text-xs ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>💡 {item.how}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 주의사항 */}
+                        {reviewModal.review.warnings?.length > 0 && (
+                          <div>
+                            <h4 className="text-lg font-semibold mb-3 flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-amber-500"></span>⚠️ 주의사항</h4>
+                            <div className="space-y-3">
+                              {reviewModal.review.warnings.map((item, i) => (
+                                <div key={i} className={`p-4 rounded-xl border-l-4 border-amber-500 ${isDarkMode ? "bg-amber-500/10" : "bg-amber-50"}`}>
+                                  <p className={`text-sm font-medium mb-1 ${isDarkMode ? "text-amber-400" : "text-amber-700"}`}>"{item.text}"</p>
+                                  <p className={`text-xs ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>{item.reason}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
-                </div>
+                </>
               )}
             </div>
           </div>
