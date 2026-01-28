@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-card: #1a1a24;
+  --accent-gpt: #10a37f;
+  --accent-claude: #d97706;
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1aa;
+  --border-color: #27272a;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
+/* 커스텀 스크롤바 */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* 그라데이션 배경 */
+.gradient-bg {
+  background: 
+    radial-gradient(ellipse at 20% 0%, rgba(16, 163, 127, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(217, 119, 6, 0.15) 0%, transparent 50%),
+    var(--bg-primary);
+}
+
+/* 카드 호버 효과 */
+.card-gpt {
+  border-left: 3px solid var(--accent-gpt);
+  transition: all 0.3s ease;
+}
+
+.card-gpt:hover {
+  box-shadow: 0 0 30px rgba(16, 163, 127, 0.2);
+  transform: translateY(-2px);
+}
+
+.card-claude {
+  border-left: 3px solid var(--accent-claude);
+  transition: all 0.3s ease;
+}
+
+.card-claude:hover {
+  box-shadow: 0 0 30px rgba(217, 119, 6, 0.2);
+  transform: translateY(-2px);
+}
+
+/* 로딩 애니메이션 */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.loading-gpt {
+  animation: pulse-glow 2s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--accent-gpt), transparent);
+}
+
+.loading-claude {
+  animation: pulse-glow 2s ease-in-out infinite;
+  animation-delay: 0.5s;
+  background: linear-gradient(90deg, var(--accent-claude), transparent);
+}
+
+/* 입력 필드 스타일 */
+input, textarea {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+input:focus, textarea:focus {
+  border-color: var(--accent-gpt) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(16, 163, 127, 0.2) !important;
+}
+
+/* 버튼 스타일 */
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-gpt), #0d8a6a);
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 30px rgba(16, 163, 127, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
