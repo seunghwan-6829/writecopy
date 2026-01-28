@@ -1,10 +1,17 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// 런타임에만 클라이언트 생성 (빌드 시 에러 방지)
+const getOpenAIClient = () => {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY가 설정되지 않았습니다.");
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+};
 
 export async function generateWithGPT(prompt: string): Promise<string> {
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: "gpt-4o", // GPT-4o (최신 안정 버전)
     messages: [

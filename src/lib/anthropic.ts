@@ -1,10 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+// 런타임에만 클라이언트 생성 (빌드 시 에러 방지)
+const getAnthropicClient = () => {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY가 설정되지 않았습니다.");
+  }
+  return new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
+};
 
 export async function generateWithClaude(prompt: string): Promise<string> {
+  const anthropic = getAnthropicClient();
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514", // Claude 4.5 Sonnet
     max_tokens: 2000,
