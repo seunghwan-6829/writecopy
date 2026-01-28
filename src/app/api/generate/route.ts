@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateWithGPT } from "@/lib/openai";
 import { generateWithClaude } from "@/lib/anthropic";
 
-export const maxDuration = 60; // Vercel Pro: 60초 타임아웃
+export const maxDuration = 300; // Vercel Pro: 최대 300초 (5분)
 
 interface GenerateRequest {
   name: string;
