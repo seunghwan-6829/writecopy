@@ -8,12 +8,9 @@ export async function generateIDPhoto(
   backgroundColor: string = "white"
 ): Promise<{ success: boolean; images?: string[]; error?: string }> {
   try {
-    // Gemini 2.0 Flash 모델 사용 (이미지 생성 지원)
+    // Imagen 3 모델 사용 (최고 품질 이미지 생성)
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.0-flash-exp-image-generation",
-      generationConfig: {
-        responseModalities: ["Text", "Image"],
-      } as any,
+      model: "imagen-3.0-generate-002",
     });
 
     const outfitDescriptions: Record<string, string> = {
