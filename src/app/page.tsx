@@ -64,12 +64,13 @@ const OUTFIT_OPTIONS = [
 ];
 
 const BACKGROUND_OPTIONS = [
-  { id: "white", label: "흰색", color: "#FFFFFF", description: "흰색 (white, #FFFFFF)" },
+  { id: "white", label: "흰색", color: "#FFFFFF", description: "순수한 흰색 (pure white, #FFFFFF)" },
   { id: "light_blue", label: "연파랑", color: "#E3F2FD", description: "연한 파란색 (light blue, #E3F2FD)" },
   { id: "light_gray", label: "연회색", color: "#F5F5F5", description: "연한 회색 (light gray, #F5F5F5)" },
   { id: "cream", label: "크림", color: "#FFF8E1", description: "크림색 (cream, #FFF8E1)" },
-  { id: "light_pink", label: "연핑크", color: "#FCE4EC", description: "연한 분홍색 (light pink, #FCE4EC)" },
   { id: "sky_blue", label: "하늘색", color: "#B3E5FC", description: "하늘색 (sky blue, #B3E5FC) - 여권사진용" },
+  { id: "black", label: "검정", color: "#000000", description: "순수한 검정색 (pure black, #000000)" },
+  { id: "dark_gray", label: "진회색", color: "#424242", description: "진한 회색 (dark gray, #424242)" },
 ];
 
 export default function Home() {
