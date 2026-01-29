@@ -63,6 +63,15 @@ const OUTFIT_OPTIONS = [
   { id: "blouse", label: "블라우스", emoji: "👚" }, { id: "casual", label: "비즈캐주얼", emoji: "👔" },
 ];
 
+const BACKGROUND_OPTIONS = [
+  { id: "white", label: "흰색", color: "#FFFFFF", description: "흰색 (white, #FFFFFF)" },
+  { id: "light_blue", label: "연파랑", color: "#E3F2FD", description: "연한 파란색 (light blue, #E3F2FD)" },
+  { id: "light_gray", label: "연회색", color: "#F5F5F5", description: "연한 회색 (light gray, #F5F5F5)" },
+  { id: "cream", label: "크림", color: "#FFF8E1", description: "크림색 (cream, #FFF8E1)" },
+  { id: "light_pink", label: "연핑크", color: "#FCE4EC", description: "연한 분홍색 (light pink, #FCE4EC)" },
+  { id: "sky_blue", label: "하늘색", color: "#B3E5FC", description: "하늘색 (sky blue, #B3E5FC) - 여권사진용" },
+];
+
 export default function Home() {
   const [currentPage, setCurrentPage] = useState<"cover-letter" | "id-photo">("cover-letter");
   const [formData, setFormData] = useState<FormData>({ name: "", position: "", company: "", experience: "", skills: "", motivation: "" });
@@ -74,6 +83,7 @@ export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [selectedOutfit, setSelectedOutfit] = useState<string | null>(null);
+  const [selectedBackground, setSelectedBackground] = useState<string>("white");
   const [generatedPhotos, setGeneratedPhotos] = useState<string[]>([]);
   const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -235,12 +245,14 @@ export default function Home() {
     }, 500);
 
     try {
+      const bgOption = BACKGROUND_OPTIONS.find(bg => bg.id === selectedBackground);
       const response = await fetch("/api/id-photo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image: uploadedImage,
           outfit: selectedOutfit,
+          backgroundColor: bgOption?.description || "흰색 (white, #FFFFFF)",
         }),
       });
 
@@ -467,6 +479,26 @@ export default function Home() {
                     className={`p-4 rounded-xl text-center transition-all ${selectedOutfit === o.id ? "bg-emerald-500 text-white ring-2 ring-emerald-400" : isDarkMode ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
                     <span className="text-2xl block">{o.emoji}</span>
                     <span className="text-xs">{o.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-8">
+              <label className={`block text-sm font-medium mb-3 ${isDarkMode ? "text-zinc-400" : "text-gray-600"}`}>3. 배경 색상</label>
+              <div className="flex flex-wrap gap-3">
+                {BACKGROUND_OPTIONS.map(bg => (
+                  <button 
+                    key={bg.id} 
+                    type="button" 
+                    onClick={() => setSelectedBackground(bg.id)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${selectedBackground === bg.id ? "ring-2 ring-emerald-400 ring-offset-2 ring-offset-zinc-900" : ""} ${isDarkMode ? "bg-zinc-800 hover:bg-zinc-700" : "bg-gray-100 hover:bg-gray-200"}`}
+                  >
+                    <span 
+                      className="w-6 h-6 rounded-full border-2 border-zinc-600" 
+                      style={{ backgroundColor: bg.color }}
+                    />
+                    <span className={`text-sm ${isDarkMode ? "text-zinc-300" : "text-gray-700"}`}>{bg.label}</span>
                   </button>
                 ))}
               </div>

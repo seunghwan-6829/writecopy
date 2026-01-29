@@ -3,7 +3,7 @@ import { generateMultipleIDPhotos } from "@/lib/gemini";
 
 export async function POST(request: Request) {
   try {
-    const { image, outfit } = await request.json();
+    const { image, outfit, backgroundColor } = await request.json();
 
     if (!image) {
       return NextResponse.json(
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     }
 
     // Gemini API로 증명사진 4장 생성
-    const result = await generateMultipleIDPhotos(image, outfit, 4);
+    const result = await generateMultipleIDPhotos(image, outfit, backgroundColor || "흰색 (white, #FFFFFF)", 4);
 
     if (!result.success) {
       return NextResponse.json(

@@ -4,7 +4,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function generateIDPhoto(
   imageBase64: string,
-  outfit: string
+  outfit: string,
+  backgroundColor: string = "white"
 ): Promise<{ success: boolean; images?: string[]; error?: string }> {
   try {
     // Gemini 2.0 Flash 모델 사용 (이미지 생성 지원)
@@ -33,16 +34,34 @@ export async function generateIDPhoto(
 
     const prompt = `이 사진의 인물을 기반으로 한국식 증명사진을 생성해주세요.
 
-요구사항:
-1. ${outfitDesc} 모습으로 변환
-2. 배경은 순수한 흰색 또는 연한 파란색
-3. 얼굴은 정면을 바라보고 있으며 자연스러운 미소
-4. 어깨부터 머리 위까지 보이는 상반신 구도
-5. 조명은 밝고 균일하게
-6. 3x4 비율의 한국 여권/증명사진 스타일
-7. 전문적이고 깔끔한 인상
+**[중요] 얼굴 특징 100% 유지 필수:**
+- 눈의 모양, 크기, 쌍꺼풀 유무를 절대 변경하지 마세요
+- 코의 모양, 크기, 콧대를 절대 변경하지 마세요
+- 입술 모양, 두께를 절대 변경하지 마세요
+- 얼굴형(턱선, 광대뼈, 이마)을 절대 변경하지 마세요
+- 피부톤, 점, 주근깨 등 피부 특징을 유지하세요
+- 원본 사진의 얼굴을 그대로 사용하고, 조명/배경/의상만 변경하세요
 
-원본 얼굴의 특징(눈, 코, 입, 얼굴형)을 최대한 유지하면서 증명사진 스타일로 변환해주세요.`;
+**[허용되는 변경사항]:**
+- 조명 방향과 밝기 조절 (증명사진 스튜디오 조명처럼)
+- 배경 변경
+- 의상 변경: ${outfitDesc}
+- 약간의 피부 보정 (자연스러운 정도만)
+
+**[스타일 요구사항]:**
+1. 배경색: ${backgroundColor} (단색, 그라데이션 없이 균일하게)
+2. 정면을 바라보는 자연스러운 표정
+3. 어깨부터 머리 위까지 보이는 상반신 구도
+4. 3x4 비율의 한국 여권/증명사진 스타일
+5. 전문 스튜디오에서 찍은 것처럼 자연스럽게
+6. AI가 생성한 티가 나지 않도록 사실적으로
+
+**[금지사항]:**
+- 얼굴 성형 효과 절대 금지
+- 눈 크기 변경 금지
+- 코 높이/모양 변경 금지
+- 피부를 과하게 보정하여 플라스틱처럼 보이게 하는 것 금지
+- 얼굴 비율 변경 금지`;
 
     const result = await model.generateContent([
       {
@@ -94,6 +113,7 @@ export async function generateIDPhoto(
 export async function generateMultipleIDPhotos(
   imageBase64: string,
   outfit: string,
+  backgroundColor: string = "white",
   count: number = 4
 ): Promise<{ success: boolean; images?: string[]; error?: string }> {
   try {
@@ -102,7 +122,7 @@ export async function generateMultipleIDPhotos(
 
     // 병렬로 여러 장 생성
     const promises = Array.from({ length: count }, () =>
-      generateIDPhoto(imageBase64, outfit)
+      generateIDPhoto(imageBase64, outfit, backgroundColor)
     );
 
     const results = await Promise.all(promises);
