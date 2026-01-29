@@ -74,6 +74,10 @@ export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [selectedOutfit, setSelectedOutfit] = useState<string | null>(null);
+  const [generatedPhotos, setGeneratedPhotos] = useState<string[]>([]);
+  const [isGeneratingPhoto, setIsGeneratingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoProgress, setPhotoProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 베리에이션 모달
@@ -214,6 +218,55 @@ export default function Home() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) { const reader = new FileReader(); reader.onloadend = () => setUploadedImage(reader.result as string); reader.readAsDataURL(file); }
+  };
+
+  // 증명사진 생성
+  const handleGenerateIDPhoto = async () => {
+    if (!uploadedImage || !selectedOutfit) return;
+    
+    setIsGeneratingPhoto(true);
+    setPhotoError(null);
+    setGeneratedPhotos([]);
+    setPhotoProgress(0);
+
+    // 프로그레스 시뮬레이션
+    const progressInterval = setInterval(() => {
+      setPhotoProgress(prev => Math.min(prev + 10, 90));
+    }, 500);
+
+    try {
+      const response = await fetch("/api/id-photo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: uploadedImage,
+          outfit: selectedOutfit,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.images) {
+        setGeneratedPhotos(data.images);
+        setPhotoProgress(100);
+      } else {
+        setPhotoError(data.error || "이미지 생성에 실패했습니다.");
+      }
+    } catch (error) {
+      setPhotoError("서버 연결에 실패했습니다.");
+    } finally {
+      clearInterval(progressInterval);
+      setIsGeneratingPhoto(false);
+    }
+  };
+
+  const downloadPhoto = (imageUrl: string, index: number) => {
+    const link = document.createElement("a");
+    link.href = imageUrl;
+    link.download = `id-photo-${index + 1}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const gptResults = results.filter(r => r.model === "GPT-5.2");
@@ -419,15 +472,80 @@ export default function Home() {
               </div>
             </div>
 
-            <button disabled={!uploadedImage || !selectedOutfit} className={`w-full py-4 rounded-xl font-semibold text-lg ${uploadedImage && selectedOutfit ? "btn-primary text-white" : isDarkMode ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
-              ✨ AI 증명사진 생성하기
+            <button 
+              onClick={handleGenerateIDPhoto}
+              disabled={!uploadedImage || !selectedOutfit || isGeneratingPhoto} 
+              className={`w-full py-4 rounded-xl font-semibold text-lg ${uploadedImage && selectedOutfit && !isGeneratingPhoto ? "btn-primary text-white" : isDarkMode ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" : "bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+              {isGeneratingPhoto ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="animate-spin">⏳</span> AI 생성 중... ({photoProgress}%)
+                </span>
+              ) : (
+                <>✨ AI 증명사진 생성하기</>
+              )}
             </button>
 
-            <div className={`mt-8 p-6 rounded-xl border-2 border-dashed ${isDarkMode ? "border-zinc-800" : "border-gray-200"}`}>
-              <p className={`text-center mb-4 ${isDarkMode ? "text-zinc-600" : "text-gray-400"}`}>🖼️ 생성된 증명사진 (4장)</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[1, 2, 3, 4].map(i => <div key={i} className={`aspect-[3/4] rounded-lg ${isDarkMode ? "bg-zinc-800" : "bg-gray-100"}`} />)}
+            {/* 프로그레스 바 */}
+            {isGeneratingPhoto && (
+              <div className="mt-4">
+                <div className={`h-2 rounded-full overflow-hidden ${isDarkMode ? "bg-zinc-800" : "bg-gray-200"}`}>
+                  <div 
+                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-300"
+                    style={{ width: `${photoProgress}%` }}
+                  />
+                </div>
+                <p className={`text-center text-sm mt-2 ${isDarkMode ? "text-zinc-500" : "text-gray-500"}`}>
+                  Gemini 3.5가 증명사진을 생성하고 있습니다...
+                </p>
               </div>
+            )}
+
+            {/* 에러 메시지 */}
+            {photoError && (
+              <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm">
+                ⚠️ {photoError}
+              </div>
+            )}
+
+            <div className={`mt-8 p-6 rounded-xl border-2 border-dashed ${isDarkMode ? "border-zinc-800" : "border-gray-200"}`}>
+              <p className={`text-center mb-4 ${isDarkMode ? "text-zinc-600" : "text-gray-400"}`}>
+                🖼️ 생성된 증명사진 ({generatedPhotos.length}/4장)
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {generatedPhotos.length > 0 ? (
+                  generatedPhotos.map((photo, i) => (
+                    <div key={i} className="relative group">
+                      <img 
+                        src={photo} 
+                        alt={`증명사진 ${i + 1}`} 
+                        className="aspect-[3/4] w-full object-cover rounded-lg"
+                      />
+                      <button
+                        onClick={() => downloadPhoto(photo, i)}
+                        className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center text-white font-medium"
+                      >
+                        📥 다운로드
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  [1, 2, 3, 4].map(i => (
+                    <div key={i} className={`aspect-[3/4] rounded-lg flex items-center justify-center ${isDarkMode ? "bg-zinc-800" : "bg-gray-100"}`}>
+                      <span className={`text-2xl ${isDarkMode ? "text-zinc-700" : "text-gray-300"}`}>
+                        {isGeneratingPhoto ? "⏳" : "📷"}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+              {generatedPhotos.length > 0 && (
+                <button
+                  onClick={() => generatedPhotos.forEach((photo, i) => downloadPhoto(photo, i))}
+                  className={`mt-4 w-full py-3 rounded-xl font-medium ${isDarkMode ? "bg-zinc-800 hover:bg-zinc-700 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"}`}
+                >
+                  📥 전체 다운로드
+                </button>
+              )}
             </div>
           </div>
         </div>
